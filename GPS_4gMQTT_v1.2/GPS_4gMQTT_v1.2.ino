@@ -1,6 +1,5 @@
 /* Codigo enfocado en la optimizacion del uso de los recursos para su funcionamiento continuo
    uso de variables globales reducido
-   implementacion de WDT
    uso de buffer para evitar String
   */
 #include "TinyGsmClientSIM7600.h"
@@ -25,9 +24,9 @@ typedef TinyGsmSim7600::GsmClientSim7600 TinyGsmClient;
 #define I2C_SCL 22
 
 
-const char apn[] = "internet.comcel.com.co";
-const char mqtt_username[] = "test";
-const char mqtt_password[] = "CloudTech*";
+const char* apn = "internet.comcel.com.co";
+const char* mqtt_username = "test";
+const char* mqtt_password = "CloudTech*";
 const char* broker = "18.212.130.131";
 const char* GPSTopic = "gps/app/testliceo/puntos/868020034072685";
 //const char* GPSTopic = "Admin/test/Dispositivo_GPS/Datos/Coordenadas";
@@ -161,6 +160,7 @@ void enviar_datosMQTT() {
       }
     }
   }
+
 }
 
 void verificar_conexionRed() {

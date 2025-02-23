@@ -9,6 +9,8 @@
 #define PIN_VEL_status 12
 #define POWER_PIN 25
 
+char lastRFID[11] = "0000000000"; // Inicializado con 10 ceros + '\0'
+
 struct Configuracion {
   const char* apn;
   const char* mqtt_username;
@@ -17,7 +19,9 @@ struct Configuracion {
   const char* GPSTopic;
   //const char* AlertTopic;
   int mqttKeepAlive;
+  const char* IDclient;
 };
+
 
 // Definimos la configuración como una constante en Flash (evita uso de RAM)
 const Configuracion config PROGMEM = {
@@ -27,7 +31,8 @@ const Configuracion config PROGMEM = {
   "18.212.130.131",                            // MQTT Broker
   "gps/app/testliceo/puntos/868020034072685",  // GPS Topic
   //"gps/app/testliceo/alertas",                 // Alert Topic
-  60                                           // Keep Alive
+  60,                                           // Keep Alive
+  modem.getIMEI().c_str()
 };
 
 //  Struct para encapsular todos los datos relacionados
@@ -41,7 +46,7 @@ typedef struct {
     int minute;
     float voltage;
     int signal;
-    char* RFID; 
+    char RFID[11]; 
 } GpsData;
 
 //  Struct para manejo de memoria dinámica del mensaje
