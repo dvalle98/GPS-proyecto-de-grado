@@ -49,6 +49,8 @@ void loop() {
 
   GpsData currentData = createGpsData();
 
+  Serial.println(F("Intentando obtener ubicacion"));
+  digitalWrite(LED_data_sent, 1);
   modem.enableGPS();
   //  Obtener todos los datos en el struct
   if (modem.getGPS(&currentData.lat, &currentData.lon,
@@ -74,6 +76,7 @@ void loop() {
     if (payload.buffer) {
       if (mqtt.connected() && mqtt.publish(config.GPSTopic, payload.buffer)) {
         Serial.println(F("Datos enviados"));
+        digitalWrite(LED_data_sent, 0);
       } else {
         Serial.println(F("Error enviando"));
       }

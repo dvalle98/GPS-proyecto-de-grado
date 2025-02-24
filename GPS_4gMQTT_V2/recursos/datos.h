@@ -22,7 +22,6 @@ struct Configuracion {
   const char* IDclient;
 };
 
-
 // Definimos la configuración como una constante en Flash (evita uso de RAM)
 const Configuracion config PROGMEM = {
   "internet.comcel.com.co",                    // APN
