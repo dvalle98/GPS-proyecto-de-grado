@@ -19,6 +19,7 @@ JsonPayload createJsonPayload(const char* imei, const GpsData* data);
 void freeJsonPayload(JsonPayload* payload);
 void initializeModemGPS(void);
 
+
 // Semáforo para acceso controlado al struct GpsData;
 SemaphoreHandle_t xSemaphore;
 
@@ -30,7 +31,6 @@ void setup() {
   digitalWrite(LED_data_sent, 0);
   pinMode(PIN_VEL_status, OUTPUT);
   digitalWrite(PIN_VEL_status, 0);
-
 
   initializeModemGPS();
   mqttConnect();
@@ -77,6 +77,12 @@ void loop() {
       if (mqtt.connected() && mqtt.publish(config.GPSTopic, payload.buffer)) {
         Serial.println(F("Datos enviados"));
         digitalWrite(LED_data_sent, 0);
+
+        if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
+          snprintf(lastRFID, sizeof(lastRFID), "%s", "0000000000");  // Copiar el nuevo
+          xSemaphoreGive(xSemaphore);
+        }
+
       } else {
         Serial.println(F("Error enviando"));
       }
@@ -98,10 +104,10 @@ void taskRFIDRead(void* parameter) {
 
     // Acceso seguro al buffer compartido
     if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
-      snprintf(lastRFID, sizeof(lastRFID), "%s", newRFID); // Copiar el nuevo 
+      snprintf(lastRFID, sizeof(lastRFID), "%s", newRFID);  // Copiar el nuevo
       xSemaphoreGive(xSemaphore);
     }
-    vTaskDelay(10000 / portTICK_PERIOD_MS);  // Simular una lectura cada 10 segundos
+    vTaskDelay(60000 / portTICK_PERIOD_MS);  // Simular una lectura cada 10 segundos
   }
 }
 
@@ -137,10 +143,10 @@ JsonPayload createJsonPayload(const GpsData* data) {
   payload.size = snprintf(NULL, 0,
                           "{\"id\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,"
                           "\"spd\":%.1f,\"brng\":%.2f,\"acc\":%.2f,"
-                          "\"time\":\"%02d:%02d\",\"volt\":%.1f,\"sig\":%d,\"RFID\":%s}",
+                          "\"time\":\"%02d:%02d\",\"volt\":%.1f,\"sig\":%d,\"RFID\":\"%s\"}",
                           config.IDclient, data->lat, data->lon,
                           data->speed, data->bearing, data->hdop,
-                          data->hour, data->minute,
+                          data->hour-5, data->minute,
                           data->voltage, data->signal, data->RFID)
                  + 1;  // +1 para el null terminator
 
@@ -150,10 +156,10 @@ JsonPayload createJsonPayload(const GpsData* data) {
     snprintf(payload.buffer, payload.size,
              "{\"id\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,"
              "\"spd\":%.1f,\"brng\":%.2f,\"acc\":%.2f,"
-             "\"time\":\"%02d:%02d\",\"volt\":%.1f,\"sig\":%d,\"RFID\":%s}",
+             "\"time\":\"%02d:%02d\",\"volt\":%.1f,\"sig\":%d,\"RFID\":\"%s\"}",
              config.IDclient, data->lat, data->lon,
              data->speed, data->bearing, data->hdop,
-             data->hour, data->minute,
+             data->hour-5, data->minute,
              data->voltage, data->signal, data->RFID);
   }
 
@@ -168,7 +174,6 @@ void freeJsonPayload(JsonPayload* payload) {
     payload->size = 0;
   }
 }
-
 
 void initializeModemGPS(void) {
   Serial.println(F("Starting modem...!"));
