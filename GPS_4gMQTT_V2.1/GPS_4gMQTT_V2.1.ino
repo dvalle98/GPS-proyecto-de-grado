@@ -1,4 +1,17 @@
-#include "recursos/TinyGsmClientSIM7600DV.h"
+#include "PN532DV.h"
+// Define the pins for SPI communication with the PN532 module
+//#define PN532_MISO (19)
+//#define PN532_MOSI (23)
+//#define PN532_SCK (18)
+#define PN532_SS (5)  // 17
+
+
+// Create an instance of the PN532 module
+PN532DV nfc(PN532_SS, &SPI);  //Hardware SPI
+//PN532DV nfc(PN532_SCK, PN532_MISO, PN532_MOSI, PN532_SS); //Software SPI
+
+
+#include "TinyGsmClientSIM7600DV.h"
 typedef TinyGsmSim7600 TinyGsm;
 typedef TinyGsmSim7600::GsmClientSim7600 TinyGsmClient;
 TinyGsm modem(Serial1);
@@ -10,10 +23,11 @@ PubSubClient mqtt(client);
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-#include "recursos/datos.h"
+#include "datos.h"
 
 // Semaphore for controlled access to the GpsData struct
-SemaphoreHandle_t xSemaphore;
+SemaphoreHandle_t xSemaphoreRFIDhandle;
+SemaphoreHandle_t xSemaphoreBuzzerHandle;
 
 void setup() {
   Serial.begin(115200);
@@ -27,12 +41,19 @@ void setup() {
   initializeModemGPS();
   mqttConnect();
 
-  // Create binary semaphore
-  xSemaphore = xSemaphoreCreateBinary();
-  xSemaphoreGive(xSemaphore);  // Initialize semaphore as available
+  // Create binary semaphore to RFID handle
+  xSemaphoreRFIDhandle = xSemaphoreCreateBinary();
+  xSemaphoreGive(xSemaphoreRFIDhandle);  // Initialize semaphore as available
 
-  // Create FreeRTOS tasks
-  xTaskCreate(taskRFIDRead, "taskRFIDRead", 4096, NULL, 1, NULL);
+  // Create binary semaphore to buzzer handle
+  xSemaphoreBuzzerHandle = xSemaphoreCreateBinary();
+  xSemaphoreGive(xSemaphoreBuzzerHandle);  // Initialize semaphore as available
+
+  if (initializePN532()) {
+    // Create tasks for read RFD card
+    xTaskCreate(taskRFIDRead, "taskRFIDRead", 4096, NULL, 1, NULL);
+    Serial.println(F("=== Waiting for an ISO14443A card ==="));
+  }
 }
 
 void loop() {
@@ -44,10 +65,10 @@ void loop() {
 
   GpsData currentData = createGpsData();
 
-  Serial.println(F("Attempting to get location"));
+  //Serial.println(F("Attempting to get location"));
   modem.enableGPS();
   digitalWrite(LED_data_sent, 1);
-  
+
   // Get all data into the struct
   if (modem.getGPS(&currentData.lat, &currentData.lon,
                    &currentData.speed, &currentData.bearing,
@@ -57,9 +78,9 @@ void loop() {
     currentData.voltage = modem.getBattVoltage() / 1000.0F;
     currentData.signal = modem.getSignalQuality();
 
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
+    if (xSemaphoreTake(xSemaphoreRFIDhandle, portMAX_DELAY) == pdTRUE) {
       snprintf(currentData.RFID, sizeof(currentData.RFID), "%s", lastRFID);  // Safe copy
-      xSemaphoreGive(xSemaphore);
+      xSemaphoreGive(xSemaphoreRFIDhandle);
     }
 
     // Critical data validation
@@ -74,11 +95,11 @@ void loop() {
     if (payload.buffer) {
       if (mqtt.publish(config.GPSTopic, payload.buffer)) {
         digitalWrite(LED_data_sent, 0);
-        Serial.println(F("✅ Data sent successfully"));        
+        Serial.println(F("✅ Data sent successfully"));
 
-        if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(xSemaphoreRFIDhandle, portMAX_DELAY) == pdTRUE) {
           snprintf(lastRFID, sizeof(lastRFID), "%s", "0000000000");  // Reset RFID
-          xSemaphoreGive(xSemaphore);
+          xSemaphoreGive(xSemaphoreRFIDhandle);
         }
       } else {
         Serial.println(F("⚠️ Failed to send data"));
@@ -86,23 +107,53 @@ void loop() {
       freeJsonPayload(&payload);  // Free memory immediately
     }
 
-    digitalWrite(PIN_VEL_status, (currentData.speed > 20));
+    if (xSemaphoreTake(xSemaphoreRFIDhandle, portMAX_DELAY) == pdTRUE) {
+      digitalWrite(PIN_VEL_status, (currentData.speed > 20));
+      xSemaphoreGive(xSemaphoreRFIDhandle);
+    }
   }
 }
 
-// Task for RFID card reading simulation
+// Task for RFID card reading
 void taskRFIDRead(void* parameter) {
   for (;;) {
-    // Simulate reading fixed RFID "1234567890"
-    const char* newRFID = "1234567890";
-    Serial.printf(" RFID Read: %s\n", newRFID);
 
-    // Safe buffer access
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
-      snprintf(lastRFID, sizeof(lastRFID), "%s", newRFID);
-      xSemaphoreGive(xSemaphore);
+    uint8_t uid[4] = { 0 };
+    uint8_t uidLength;
+
+    // Try to read a passive target ID (NFC card)
+    if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, &uid[0], &uidLength, 500)) {
+      if (!nfc.cardPresent) {
+        nfc.cardPresent = true;
+        Serial.println(F("Found a card!"));
+
+        char formattedUID[11];
+        // Process the UID to convert it to a decimal value
+        uint64_t decimalUID = nfc.processUID(uid, uidLength);
+        snprintf(formattedUID, 11, "%010llu", decimalUID);  // Format the UID to always have 10 digits
+
+        // Safe buffer RFID access
+        if (xSemaphoreTake(xSemaphoreRFIDhandle, portMAX_DELAY) == pdTRUE) {
+          snprintf(lastRFID, sizeof(lastRFID), "%s", formattedUID);
+          Serial.printf("RFID: %s \n", lastRFID);
+          xSemaphoreGive(xSemaphoreRFIDhandle);
+        }
+        // Safe buzzer access
+        if (xSemaphoreTake(xSemaphoreRFIDhandle, portMAX_DELAY) == pdTRUE) {
+          digitalWrite(PIN_VEL_status, 1);
+          delay(150);
+          digitalWrite(PIN_VEL_status, 0);
+          xSemaphoreGive(xSemaphoreRFIDhandle);
+        }
+      }
+    } else {
+      if (nfc.cardPresent) {
+        Serial.println(F("Card removed!"));
+        nfc.cardPresent = false;
+      }
     }
-    vTaskDelay(60000 / portTICK_PERIOD_MS);  // Simulate read every 60 seconds
+
+    //vTaskDelay(60000 / portTICK_PERIOD_MS);  // Simulate read every 60 seconds
   }
 }
 
@@ -230,4 +281,17 @@ void checkNetworkConnection(void) {
     delay(1000);
     ESP.restart();
   }
+}
+
+// Function to initialize the PN532 module
+bool initializePN532(void) {
+  nfc.begin();
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  if (!versiondata) {
+    Serial.println(F("❌ Didn't find PN53x board"));
+    delay(1000);
+    return false;
+  }
+  nfc.setPassiveActivationRetries(0xFF);
+  return true;
 }

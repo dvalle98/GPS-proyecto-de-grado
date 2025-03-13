@@ -56,12 +56,3 @@ typedef struct
   char *buffer;
   size_t size;
 } JsonPayload;
-
-
-
-bool mqttConnect(void);
-GpsData createGpsData(void);
-JsonPayload createJsonPayload(const char* imei, const GpsData* data);
-void freeJsonPayload(JsonPayload* payload);
-void initializeModemGPS(void);
-void verificar_conexionRed(void);

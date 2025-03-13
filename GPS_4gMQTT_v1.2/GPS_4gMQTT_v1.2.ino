@@ -165,8 +165,10 @@ void enviar_datosMQTT() {
 
 void verificar_conexionRed() {
   Serial.print(F("Network checking:\t"));
+
   if (!modem.isNetworkConnected()) {
     Serial.print(F("Network disconnected\nConecting..."));
+
     if (!modem.waitForNetwork(60000L, true)) {
       Serial.println(F("\tfail"));
       delay(5000);
@@ -182,6 +184,7 @@ void verificar_conexionRed() {
   } else if (modem.isNetworkConnected()) {
     Serial.println(F("Network is connected"));
   }
+  
   Serial.print(F("GPRS checking:\t"));
   if (!modem.isGprsConnected()) {
     Serial.print(F("GPRS disconnected!\nConnecting to\t:"));
